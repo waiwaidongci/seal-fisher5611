@@ -26,6 +26,42 @@
   "defaults": {
     "alpha": 0.05
   },
+  "kinds": {
+    "seal_fisher": {
+      "label": "试封计数比较",
+      "study_label": "试封方案",
+      "row_label": "工艺计数",
+      "field_label": "双侧精确比较",
+      "fields": [
+        ["group", "工艺组 (A/B)", "text"],
+        ["success", "合格数", "number"],
+        ["failure", "失败数", "number"]
+      ],
+      "defaults": {"alpha": 0.05},
+      "note": "两组试件独立，组别预先固定。双侧 p 值是固定边际下概率不大于观察表的所有表之和。",
+      "algorithm": "Fisher精确检验、Wilson单比例区间与率差",
+      "names": ["砚田·薄膜一轮", "砚田·覆膜二轮", "砚田·热封三轮"],
+      "scenario": "两种封口工艺独立合格/失败计数→固定方案比较→复试决策；双侧Fisher按概率不大于观测表求和"
+    },
+    "shelf_risk": {
+      "label": "货架期竞争风险",
+      "study_label": "上架批次",
+      "row_label": "单件试件",
+      "field_label": "指定日漏封风险",
+      "fields": [
+        ["group", "工艺组 (A/B)", "text"],
+        ["entry", "补录入组日 (上架后天数)", "number"],
+        ["leak", "首次漏封日", "number", "optional"],
+        ["break", "首次破包日", "number", "optional"],
+        ["loss", "首次失访日", "number", "optional"]
+      ],
+      "defaults": {"day": 30},
+      "note": "从上架起计时，按件分开补录入组与首次漏封、破包或失访。破包后无法再观察漏封，按竞争事件处理；失访按非信息删失。",
+      "algorithm": "竞争风险Aalen-Johansen累计发生率与指定日B减A风险差",
+      "names": ["砚田·货架留样一轮"],
+      "scenario": "试件上架后迟入组，破包与失访竞争漏封观察；指定日给出B减A漏封累计发生率差"
+    }
+  },
   "names": [
     "砚田·薄膜一轮",
     "砚田·覆膜二轮",
@@ -39,11 +75,11 @@
   "direction": "假设检验",
   "title": "砚田包装试封比较席",
   "slug": "seal-fisher",
-  "algorithm": "Fisher精确检验、Wilson单比例区间与率差",
+  "algorithm": "Fisher精确检验、Wilson单比例区间与率差；货架期竞争风险累计发生率",
   "entities": "SealTrial / TrialCount / ExactRun / TrialDecision",
-  "scenario": "两种封口工艺独立合格/失败计数→固定方案比较→复试决策；双侧Fisher按概率不大于观测表求和",
+  "scenario": "两种封口工艺独立合格/失败计数→固定方案比较→复试决策；双侧Fisher按概率不大于观测表求和。另设货架留样方案，按件记录迟入组与首次漏封、破包、失访，在指定日比较竞争风险累计发生率。",
   "visual": "封样检验蓝图、砖红",
-  "oracle": "2×2固定边际对scipy fisher_exact；零格与计数非法拒绝",
+  "oracle": "2×2固定边际对scipy fisher_exact；零格与计数非法拒绝。竞争风险对Aalen-Johansen手算样例",
   "frontend": 18241,
   "backend": 19241,
   "db_port": 17741,

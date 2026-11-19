@@ -9,6 +9,53 @@ from src.models.observation import Observation
 from src.models import run,review,audit
 from src.utils.security import hash_password
 
+
+def _seal_rows(k,i,rng):
+    if i==0:
+        rows=[]
+        for n in range(120):
+            rows.append({'moisture':round(float(np.clip(rng.normal(5.2+k*.7,.7),0,100)),3),'extract':round(float(np.clip(rng.normal(34+k*2,2.4),0,100)),3)})
+        return rows
+    if i==1: return [{'group':'A','success':87+k*2,'failure':13-k*2},{'group':'B','success':96-k,'failure':4+k}]
+    if i==2:
+        rows=[]
+        for n in range(24):
+            b=float(rng.uniform(3,6));rows.append({'before':round(b,3),'after':round(max(.1,b+rng.normal(-.45+k*.3,.5)),3)})
+        return rows
+    if i==3:
+        rows=[]
+        for n in range(90):
+            x=round(float(rng.uniform(4,28)),1);rows.append({'porosity':x,'absorption':round(max(0,x*(.18+k*.08)+rng.normal(0,1.5)),2)})
+        return rows
+    return [{'p0':.08+k*.02,'p1':.1+k*.025,'cost_per_contact':.12+k*.04,'budget':3000+k*500}]
+
+
+def _shelf_rows(rng,k=0):
+    """Per-specimen shelf records with delayed entry and first outcomes.
+
+    Each row records the day a specimen was entered (some late, i.e. after
+    shelving) and the first of leak / break / loss.  A minority is still under
+    observation and carries no first outcome.
+    """
+    rows=[]
+    for group,leak_scale,break_scale in (('A',150.0,260.0),('B',260.0,240.0)):
+        for n in range(90):
+            entry=0.0 if n<70 else round(float(rng.uniform(1,18)),1)
+            first_leak=entry+float(rng.exponential(leak_scale))
+            first_break=entry+float(rng.exponential(break_scale))
+            first_loss=entry+float(rng.uniform(60,400))
+            kind,day=min((('leak',first_leak),('break',first_break),('loss',first_loss)),key=lambda x:x[1])
+            values={'group':group,'entry':round(entry,1),'leak':None,'break':None,'loss':None}
+            if n>=88:
+                pass  # still under observation, no first outcome yet
+            elif day>365:
+                values['loss']=365.0
+            else:
+                values[kind]=round(day,1)
+            rows.append(values)
+    return rows
+
+
 def seed():
     Base.metadata.create_all(engine)
     rng=np.random.default_rng(42)
@@ -20,23 +67,22 @@ def seed():
         for k,name in enumerate(DOMAIN['names']):
             study=db.scalar(select(Study).where(Study.name==name))
             if not study:
-                study=Study(name=name,source_filename=DOMAIN['slug']+f'-202611-{k+1}.csv',description='独立合成业务观测 / 固定种子42 / 仅用于方法与流程演示');db.add(study);db.flush()
-            rows=[]
-            if i==0:
-                for n in range(120): rows.append({'moisture':round(float(np.clip(rng.normal(5.2+k*.7,.7),0,100)),3),'extract':round(float(np.clip(rng.normal(34+k*2,2.4),0,100)),3)})
-            elif i==1:
-                rows=[{'group':'A','success':87+k*2,'failure':13-k*2},{'group':'B','success':96-k,'failure':4+k}]
-            elif i==2:
-                for n in range(24):
-                    b=float(rng.uniform(3,6));rows.append({'before':round(b,3),'after':round(max(.1,b+rng.normal(-.45+k*.3,.5)),3)})
-            elif i==3:
-                for n in range(90):
-                    x=round(float(rng.uniform(4,28)),1);rows.append({'porosity':x,'absorption':round(max(0,x*(.18+k*.08)+rng.normal(0,1.5)),2)})
-            else: rows=[{'p0':.08+k*.02,'p1':.1+k*.025,'cost_per_contact':.12+k*.04,'budget':3000+k*500}]
+                study=Study(name=name,source_filename=DOMAIN['slug']+f'-202611-{k+1}.csv',description='独立合成业务观测 / 固定种子42 / 仅用于方法与流程演示',kind='seal_fisher');db.add(study);db.flush()
+            elif not study.kind: study.kind='seal_fisher'
+            rows=_seal_rows(k,i,rng)
             for n,values in enumerate(rows):
                 key=f'DEMO-{k+1}-{n+1:04}'
                 if not db.scalar(select(Observation.id).where(Observation.study_id==study.id,Observation.source_key==key)):
                     db.add(Observation(study_id=study.id,source_key=key,values=values))
+        shelf_name='砚田·货架留样一轮'
+        shelf=db.scalar(select(Study).where(Study.name==shelf_name))
+        if not shelf:
+            shelf=Study(name=shelf_name,source_filename='seal-shelf-202611-1.csv',description='上架后迟入组、破包与失访竞争漏封观察 / 固定种子42 / 仅用于方法与流程演示',kind='shelf_risk');db.add(shelf);db.flush()
+        elif not shelf.kind: shelf.kind='shelf_risk'
+        for n,values in enumerate(_shelf_rows(np.random.default_rng(420))):
+            key=f'SHELF-{n+1:04}'
+            if not db.scalar(select(Observation.id).where(Observation.study_id==shelf.id,Observation.source_key==key)):
+                db.add(Observation(study_id=shelf.id,source_key=key,values=values))
         db.commit()
         counts={model.__tablename__:db.scalar(select(func.count()).select_from(model)) for model in (User,Study,Observation)}
         print(json.dumps(counts));return counts

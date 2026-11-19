@@ -5,7 +5,7 @@ from src.config.database import get_db
 from src.config.domain import DOMAIN
 from src.middlewares.auth import current_user,writer,admin
 from src.schemas.study import StudyInput
-from src.schemas.observation import ObservationInput
+from src.schemas.observation import ObservationInput,ObservationBatchInput
 from src.schemas.run import RunInput
 from src.schemas.review import ReviewInput
 from src.controllers import research
@@ -27,6 +27,8 @@ def create_study(data:StudyInput,db=Depends(get_db),user=Depends(writer)): retur
 def rows(id:int,db=Depends(get_db),user=Depends(current_user)): return research.list_rows(db,id)
 @router.post('/studies/{id}/observations')
 def add(id:int,data:ObservationInput,db=Depends(get_db),user=Depends(writer)): return research.save_row(db,id,data,user)
+@router.post('/studies/{id}/observations/batch')
+def add_batch(id:int,data:ObservationBatchInput,db=Depends(get_db),user=Depends(writer)): return research.save_rows(db,id,data,user)
 @router.put('/studies/{id}/observations/{row_id}')
 def update(id:int,row_id:int,data:ObservationInput,db=Depends(get_db),user=Depends(writer)): return research.save_row(db,id,data,user,row_id)
 @router.delete('/studies/{id}/observations/{row_id}')

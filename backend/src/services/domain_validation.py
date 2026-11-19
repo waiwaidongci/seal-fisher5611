@@ -1,42 +1,111 @@
 import math
 from src.config.domain import DOMAIN
 
-def validate_values(values):
-    expected={f[0] for f in DOMAIN['fields']}
-    if set(values)!=expected: raise ValueError('字段必须为 '+', '.join(expected))
-    out={}
-    for key,label,kind in DOMAIN['fields']:
-        v=values[key]
-        if kind=='text':
-            if v not in ('A','B'): raise ValueError('工艺组必须为A或B')
-        else:
-            if isinstance(v,bool): raise ValueError(label+'必须是数值')
-            v=float(v)
-            if not math.isfinite(v) or abs(v)>1e9: raise ValueError(label+'必须为有限业务数值')
-            if v<0: raise ValueError(label+'不得为负')
-        out[key]=v
-    i=DOMAIN['index']
-    if i==0 and any(v>100 for v in out.values()): raise ValueError('百分比必须在0到100之间')
-    if i==1:
-        if any(out[k]!=int(out[k]) or out[k]>100000 for k in ('success','failure')): raise ValueError('计数必须为0到100000的整数')
-        if out['success']+out['failure']==0: raise ValueError('组内总数必须大于0')
-    if i==4:
-        if not 0<out['p0']<1 or not 0<out['p1']<1 or out['p0']==out['p1']: raise ValueError('两概率须在0和1之间且不同')
-        if out['cost_per_contact']<=0 or out['budget']<=0: raise ValueError('成本与预算须为正')
+KINDS = DOMAIN['kinds']
+DEFAULT_KIND = 'seal_fisher'
+
+# Absolute business ceiling for a day count, ~2740 years, kept well inside
+# float precision so that ordering and ties remain exact.
+MAX_DAY = 1_000_000.0
+MAX_SPECIMENS = 100_000
+
+
+def kind_spec(kind):
+    if kind not in KINDS:
+        raise ValueError('未知研究类型')
+    return KINDS[kind]
+
+
+def _day(value, label):
+    if value is None or value == '':
+        return None
+    if isinstance(value, bool):
+        raise ValueError(label + '必须是数值')
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(label + '必须是数值') from None
+    if not math.isfinite(number):
+        raise ValueError(label + '必须是有限数值')
+    if number < 0:
+        raise ValueError(label + '不得为负')
+    if number > MAX_DAY:
+        raise ValueError(label + '超出业务范围')
+    return number
+
+
+def _seal_values(values):
+    expected = {'group', 'success', 'failure'}
+    if set(values) != expected:
+        raise ValueError('字段必须为 ' + ', '.join(expected))
+    group = values['group']
+    if group not in ('A', 'B'):
+        raise ValueError('工艺组必须为A或B')
+    out = {'group': group}
+    for key, label in (('success', '合格数'), ('failure', '失败数')):
+        raw = values[key]
+        if isinstance(raw, bool):
+            raise ValueError(label + '必须是数值')
+        number = float(raw)
+        if not math.isfinite(number) or abs(number) > 1e9:
+            raise ValueError(label + '必须为有限业务数值')
+        if number < 0:
+            raise ValueError(label + '不得为负')
+        if number != int(number) or number > 100000:
+            raise ValueError('计数必须为0到100000的整数')
+        out[key] = number
+    if out['success'] + out['failure'] == 0:
+        raise ValueError('组内总数必须大于0')
     return out
 
-def validate_parameters(params):
-    defaults=DOMAIN['defaults']
-    if not isinstance(params,dict) or set(params)-set(defaults): raise ValueError('存在未知分析参数')
-    p=defaults|params
-    if 'field' in p and p['field'] not in [f[0] for f in DOMAIN['fields']]: raise ValueError('未知指标')
-    for key in ('resamples','simulations'):
-        if key in p:
-            v=p[key]
-            if isinstance(v,bool) or not isinstance(v,(int,float)) or int(v)!=v or not 200<=v<=20000: raise ValueError('重采样次数必须是200到20000的整数')
-            p[key]=int(v)
-    for key in ('alpha','power'):
-        if key in p:
-            p[key]=float(p[key])
-            if not math.isfinite(p[key]) or not (0.001<=p[key]<=0.2 if key=='alpha' else 0.5<=p[key]<=0.99): raise ValueError('显著性或功效超出范围')
+
+def _shelf_values(values):
+    expected = {'group', 'entry', 'leak', 'break', 'loss'}
+    if set(values) != expected:
+        raise ValueError('字段必须为 ' + ', '.join(sorted(expected)))
+    group = values['group']
+    if group not in ('A', 'B'):
+        raise ValueError('工艺组必须为A或B')
+    entry = _day(values['entry'], '补录入组日')
+    if entry is None:
+        raise ValueError('补录入组日不得为空')
+    out = {'group': group, 'entry': entry, 'leak': None, 'break': None, 'loss': None}
+    recorded = 0
+    for key, label in (('leak', '首次漏封日'), ('break', '首次破包日'), ('loss', '首次失访日')):
+        day = _day(values[key], label)
+        if day is not None:
+            if day < entry:
+                raise ValueError(label + '不得早于补录入组日')
+            recorded += 1
+        out[key] = day
+    if recorded > 1:
+        raise ValueError('每件试件只能记录首次漏封、破包或失访之一')
+    return out
+
+
+def validate_values(values, kind=DEFAULT_KIND):
+    spec = kind_spec(kind)
+    if not isinstance(values, dict):
+        raise ValueError('观测必须为字段映射')
+    return _shelf_values(values) if kind == 'shelf_risk' else _seal_values(values)
+
+
+def validate_parameters(params, kind=DEFAULT_KIND):
+    spec = kind_spec(kind)
+    defaults = spec['defaults']
+    if params is None:
+        params = {}
+    if not isinstance(params, dict) or set(params) - set(defaults):
+        raise ValueError('存在未知分析参数')
+    p = defaults | params
+    if kind == 'shelf_risk':
+        day = _day(p.get('day'), '指定日')
+        if day is None:
+            raise ValueError('指定日不得为空')
+        p['day'] = day
+        return p
+    for key in ('alpha',):
+        p[key] = float(p[key])
+        if not math.isfinite(p[key]) or not 0.001 <= p[key] <= 0.2:
+            raise ValueError('显著性超出范围')
     return p

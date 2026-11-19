@@ -4,6 +4,7 @@ class ExactRun(Base):
     __tablename__='runs'
     id=Column(Integer,primary_key=True)
     study_id=Column(Integer,ForeignKey('studies.id'),nullable=False)
+    kind=Column(String(40),nullable=False,default='seal_fisher',server_default='seal_fisher')
     name=Column(String(120),nullable=False)
     status=Column(String(20),default='queued')
     parameters=Column(JSON,nullable=False)

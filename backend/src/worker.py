@@ -5,7 +5,7 @@ from sqlalchemy import select
 from src.config.database import Session
 from src.models.run import Run
 from src.models import user,study,observation,review,audit
-from src.services.algorithm import calculate
+from src.services.runs import compute,run_kind
 from src.utils.serializers import checksum
 redis=Redis.from_url(os.environ['REDIS_URL'])
 Path('/app/artifacts').mkdir(exist_ok=True)
@@ -24,7 +24,9 @@ while True:
         run.status='running';db.commit()
         try:
             if checksum(run.snapshot)!=run.checksum: raise ValueError('输入快照校验失败')
-            result=calculate(run.snapshot,run.parameters)
+            # The snapshot is immutable: entries saved while this job runs go
+            # into a later run, never into this one.
+            result=compute(run.snapshot,run.parameters,run_kind(run))
             result['input_sha256']=run.checksum
             run.result=result;run.status='completed'
             Path(f'/app/artifacts/run-{id}.json').write_text(json.dumps(result,ensure_ascii=False,allow_nan=False))

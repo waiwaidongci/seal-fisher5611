@@ -6,4 +6,5 @@ class SealTrial(Base):
     name=Column(String(120),unique=True,nullable=False)
     source_filename=Column(String(120),nullable=False)
     description=Column(Text,default='')
+    kind=Column(String(40),nullable=False,default='seal_fisher',server_default='seal_fisher')
 Study=SealTrial
